@@ -21,7 +21,7 @@ interface HttpResponse {
 function parseRequest(rawRequest: Buffer): HttpRequest {
   const [rawHeaders, body = ""] = rawRequest.toString().split("\r\n\r\n");
   const [requestLine, ...headerLines] = rawHeaders.toString().split("\r\n");
-  const [method, target, version] = requestLine.split(" ");
+  const [method, target, version] = requestLine.trim().split(" ");
 
   const headers: Record<string, string> = {};
   for (const line of headerLines) {
@@ -40,11 +40,13 @@ function formatResponse(res: HttpResponse): Buffer {
     .map(([key, value]) => `${key}: ${value}`)
     .join("\r\n");
 
-  const head = `${statusLine}\r\n${headerLines}\r\n\r\n`;
-  const headBuffer = Buffer.from(head);
-
+  const head = headerLines 
+    ? `${statusLine}\r\n${headerLines}\r\n\r\n`
+    : `${statusLine}\r\n\r\n`;
+  
+  const headBuffer = Buffer.from(head, "utf8");
   const bodyBuffer = typeof res.body === "string"
-    ? Buffer.from(res.body)
+    ? Buffer.from(res.body, 'utf8')
     : res.body;
   
   return Buffer.concat([headBuffer, bodyBuffer]);
@@ -133,12 +135,7 @@ const server = net.createServer((socket: net.Socket) => {
   socket.on("data", async (rawRequest: Buffer) => {
     const request: HttpRequest = parseRequest(rawRequest);
     const response: HttpResponse = await handleRequest(request);
-    
     socket.write(formatResponse(response));
-
-    if (request.headers["Connection"] === "close") {
-      socket.end();
-    }
   });
 });
 
