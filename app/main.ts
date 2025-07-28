@@ -73,8 +73,8 @@ async function handleRequest(request: HttpRequest): Promise<HttpResponse> {
     });
 
     const acceptEncoding = headers["Accept-Encoding"];
-    if (acceptEncoding && acceptEncoding === "gzip") {
-      res.headers["Content-Encoding"] = headers["Accept-Encoding"];
+    if (acceptEncoding && acceptEncoding.includes("gzip")) {
+      res.headers["Content-Encoding"] = "gzip";
     }
 
     return res;
