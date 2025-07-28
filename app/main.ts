@@ -1,5 +1,5 @@
 import * as net from "net";
-import { readFile } from "fs/promises";
+import { writeFile, readFile } from "fs/promises";
 import { existsSync } from "fs";
 
 interface HttpRequest {
@@ -7,6 +7,7 @@ interface HttpRequest {
   target: string;
   version: string;
   headers: Record<string, string>;
+  body: string | Buffer
 }
 
 interface HttpResponse {
@@ -14,21 +15,23 @@ interface HttpResponse {
   statusCode: number;
   statusMessage: string;
   headers: Record<string, string>;
-  body?: string | Buffer;
+  body: string | Buffer;
 }
 
 function parseRequest(rawRequest: Buffer<ArrayBufferLike>): HttpRequest {
-  const [requestLine, ...headerLines] = rawRequest.toString().split("\r\n");
+  const [rawHeaders, body = ""] = rawRequest.toString().split("\r\n\r\n");
+  const [requestLine, ...headerLines] = rawHeaders.toString().split("\r\n");
   const [method, target, version] = requestLine.split(" ");
 
   const headers: Record<string, string> = {};
   for (const line of headerLines) {
-    if (line.trim() === "") break;
     const [key, value] = line.split(": ");
-    headers[key] = value;
+    if (key && value) {
+      headers[key] = value;
+    }
   }
 
-  return { method, target, version, headers };
+  return { method, target, version, headers, body };
 }
 
 function formatResponse(res: HttpResponse): string {
@@ -36,8 +39,8 @@ function formatResponse(res: HttpResponse): string {
   const headerLines: string = Object.entries(res.headers)
     .map(([key, value]) => `${key}: ${value}`)
     .join("\r\n");
+  const body: string = res.body.toString();
   
-  const body: string = res.body?.toString() ?? "";
   return `${statusLine}\r\n${headerLines}\r\n\r\n${body}`;
 }
 
@@ -52,47 +55,50 @@ function createResponse(overrides: Partial<HttpResponse>): HttpResponse {
   };
 }
 
-const server = net.createServer((socket: net.Socket) => {
-  socket.setEncoding('utf-8');
+async function handleRequest(request: HttpRequest): Promise<HttpResponse> {
+  const { method, target, headers, body } = request
+
+  if (target == "/") {
+    return createResponse({});
+  }
   
-  socket.on("data", async (rawRequest: Buffer<ArrayBufferLike>) => {
-    const request: HttpRequest = parseRequest(rawRequest);
-    
-    // Assume the response should be not found as default
-    // so we don't have to handle in the if-else statements for clarify
-    let response: HttpResponse = createResponse({
-      statusCode: 404,
-      statusMessage: "Not Found"
+  if (target.startsWith("/echo/")) {
+    const msg: string = target.substring("/echo/".length);
+    return createResponse({
+      headers: {
+        "Content-Type": "text/plain",
+        "Content-Length": msg.length.toString(),
+      },
+      body: msg
     });
+  }
+  
+  if (target === "/user-agent") {
+    const userAgent = headers["User-Agent"];
+    return createResponse({
+      headers: {
+        "Content-Type": "text/plain",
+        "Content-Length": userAgent.length.toString(),
+      },
+      body: userAgent
+    });
+  }
+  
+  if (target.startsWith("/files/")) {
+    const dirPath: string = process.argv[3];
+    const filename: string = target.substring("/files/".length);
+    const path: string = `${dirPath}/${filename}`;
 
-    if (request.target == "/") {
-      response = createResponse({});
-    } else if (request.target.startsWith("/echo/")) {
-      const param: string = request.target.substring("/echo/".length);
-      response = createResponse({
-        headers: {
-          "Content-Type": "text/plain",
-          "Content-Length": param.length.toString(),
-        },
-        body: param
-      });
-    } else if (request.target === "/user-agent") {
-      const userAgent = request.headers["User-Agent"];
-      response = createResponse({
-        headers: {
-          "Content-Type": "text/plain",
-          "Content-Length": userAgent.length.toString(),
-        },
-        body: userAgent
-      });
-    } else if (request.target.startsWith("/files/")) {
-      const dirPath: string = process.argv[3];
-      const filename: string = request.target.substring("/files/".length);
-      const path: string = `${dirPath}/${filename}`;
-
+    if (method === "POST") {
+      writeFile(path, body);
+      return createResponse({
+        statusCode: 201,
+        statusMessage: "Created"
+      })
+    } else if (method === "GET") {
       if (existsSync(path)) {
         const content = await readFile(path, "utf-8");
-        response = createResponse({
+        return createResponse({
           headers: {
             "Content-Type": "application/octet-stream",
             "Content-Length": content.length.toString()
@@ -101,6 +107,20 @@ const server = net.createServer((socket: net.Socket) => {
         });
       }
     }
+  }
+
+  return createResponse({
+    statusCode: 404,
+    statusMessage: "Not Found"
+  });
+}
+
+const server = net.createServer((socket: net.Socket) => {
+  socket.setEncoding('utf-8');
+  
+  socket.on("data", async (rawRequest: Buffer<ArrayBufferLike>) => {
+    const request: HttpRequest = parseRequest(rawRequest);
+    const response: HttpResponse = await handleRequest(request);
     
     socket.write(formatResponse(response));
   });
