@@ -64,13 +64,20 @@ async function handleRequest(request: HttpRequest): Promise<HttpResponse> {
   
   if (target.startsWith("/echo/")) {
     const msg: string = target.substring("/echo/".length);
-    return createResponse({
+    const res: HttpResponse = createResponse({
       headers: {
         "Content-Type": "text/plain",
         "Content-Length": msg.length.toString(),
       },
       body: msg
     });
+
+    const acceptEncoding = headers["Accept-Encoding"];
+    if (acceptEncoding && acceptEncoding === "gzip") {
+      res.headers["Content-Encoding"] = headers["Accept-Encoding"];
+    }
+
+    return res;
   }
   
   if (target === "/user-agent") {
