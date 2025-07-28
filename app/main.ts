@@ -1,4 +1,6 @@
 import * as net from "net";
+import { readFile } from "fs/promises";
+import { existsSync } from "fs";
 
 interface HttpRequest {
   method: string;
@@ -53,7 +55,7 @@ function createResponse(overrides: Partial<HttpResponse>): HttpResponse {
 const server = net.createServer((socket: net.Socket) => {
   socket.setEncoding('utf-8');
   
-  socket.on("data", (rawRequest: Buffer<ArrayBufferLike>) => {
+  socket.on("data", async (rawRequest: Buffer<ArrayBufferLike>) => {
     const request: HttpRequest = parseRequest(rawRequest);
     
     // Assume the response should be not found as default
@@ -83,6 +85,21 @@ const server = net.createServer((socket: net.Socket) => {
         },
         body: userAgent
       });
+    } else if (request.target.startsWith("/files/")) {
+      const dirPath: string = process.argv[3];
+      const filename: string = request.target.substring("/files/".length);
+      const path: string = `${dirPath}/${filename}`;
+
+      if (existsSync(path)) {
+        const content = await readFile(path, "utf-8");
+        response = createResponse({
+          headers: {
+            "Content-Type": "application/octet-stream",
+            "Content-Length": content.length.toString()
+          },
+          body: content
+        });
+      }
     }
     
     socket.write(formatResponse(response));
