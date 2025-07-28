@@ -34,14 +34,20 @@ function parseRequest(rawRequest: Buffer<ArrayBufferLike>): HttpRequest {
   return { method, target, version, headers, body };
 }
 
-function formatResponse(res: HttpResponse): string {
+function formatResponse(res: HttpResponse): Buffer {
   const statusLine: string = `${res.version} ${res.statusCode} ${res.statusMessage}`;
   const headerLines: string = Object.entries(res.headers)
     .map(([key, value]) => `${key}: ${value}`)
     .join("\r\n");
-  const body: string = res.body.toString();
+
+  const head = `${statusLine}\r\n${headerLines}\r\n\r\n`;
+  const headBuffer = Buffer.from(head, "utf-8");
+
+  const bodyBuffer = typeof res.body === "string"
+    ? Buffer.from(res.body, "utf-8")
+    : res.body
   
-  return `${statusLine}\r\n${headerLines}\r\n\r\n${body}`;
+  return Buffer.concat([headBuffer, bodyBuffer]);
 }
 
 function createResponse(overrides: Partial<HttpResponse>): HttpResponse {
@@ -72,9 +78,10 @@ async function handleRequest(request: HttpRequest): Promise<HttpResponse> {
       body: msg
     });
 
-    const acceptEncoding = headers["Accept-Encoding"];
-    if (acceptEncoding && acceptEncoding.includes("gzip")) {
+    if (headers["Accept-Encoding"]?.includes("gzip")) {
+      res.body = Buffer.from(Bun.gzipSync(msg));
       res.headers["Content-Encoding"] = "gzip";
+      res.headers["Content-Length"] = res.body.length.toString();
     }
 
     return res;
