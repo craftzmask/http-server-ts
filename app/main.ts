@@ -138,10 +138,6 @@ const server = net.createServer((socket: net.Socket) => {
     
     socket.write(formatResponse(response));
   });
-
-  socket.on("close", () => {
-    socket.end();
-  });
 });
 
 server.listen(4221, "localhost");
