@@ -18,7 +18,7 @@ interface HttpResponse {
   body: string | Buffer;
 }
 
-function parseRequest(rawRequest: Buffer<ArrayBufferLike>): HttpRequest {
+function parseRequest(rawRequest: Buffer): HttpRequest {
   const [rawHeaders, body = ""] = rawRequest.toString().split("\r\n\r\n");
   const [requestLine, ...headerLines] = rawHeaders.toString().split("\r\n");
   const [method, target, version] = requestLine.split(" ");
@@ -41,16 +41,16 @@ function formatResponse(res: HttpResponse): Buffer {
     .join("\r\n");
 
   const head = `${statusLine}\r\n${headerLines}\r\n\r\n`;
-  const headBuffer = Buffer.from(head, "utf-8");
+  const headBuffer = Buffer.from(head);
 
   const bodyBuffer = typeof res.body === "string"
-    ? Buffer.from(res.body, "utf-8")
-    : res.body
+    ? Buffer.from(res.body)
+    : res.body;
   
   return Buffer.concat([headBuffer, bodyBuffer]);
 }
 
-function createResponse(overrides: Partial<HttpResponse>): HttpResponse {
+function createResponse(overrides: Partial<HttpResponse> = {}): HttpResponse {
   return {
     version: "HTTP/1.1",
     statusCode: 200,
@@ -65,7 +65,7 @@ async function handleRequest(request: HttpRequest): Promise<HttpResponse> {
   const { method, target, headers, body } = request
 
   if (target == "/") {
-    return createResponse({});
+    return createResponse();
   }
   
   if (target.startsWith("/echo/")) {
@@ -88,7 +88,7 @@ async function handleRequest(request: HttpRequest): Promise<HttpResponse> {
   }
   
   if (target === "/user-agent") {
-    const userAgent = headers["User-Agent"];
+    const userAgent = headers["User-Agent"] ?? "";
     return createResponse({
       headers: {
         "Content-Type": "text/plain",
@@ -104,14 +104,14 @@ async function handleRequest(request: HttpRequest): Promise<HttpResponse> {
     const path: string = `${dirPath}/${filename}`;
 
     if (method === "POST") {
-      writeFile(path, body);
+      await writeFile(path, body);
       return createResponse({
         statusCode: 201,
         statusMessage: "Created"
       })
     } else if (method === "GET") {
       if (existsSync(path)) {
-        const content = await readFile(path, "utf-8");
+        const content = await readFile(path);
         return createResponse({
           headers: {
             "Content-Type": "application/octet-stream",
@@ -129,14 +129,16 @@ async function handleRequest(request: HttpRequest): Promise<HttpResponse> {
   });
 }
 
-const server = net.createServer((socket: net.Socket) => {
-  socket.setEncoding('utf-8');
-  
-  socket.on("data", async (rawRequest: Buffer<ArrayBufferLike>) => {
+const server = net.createServer((socket: net.Socket) => {  
+  socket.on("data", async (rawRequest: Buffer) => {
     const request: HttpRequest = parseRequest(rawRequest);
     const response: HttpResponse = await handleRequest(request);
     
     socket.write(formatResponse(response));
+
+    if (request.headers["Connection"] === "close") {
+      socket.end();
+    }
   });
 });
 
