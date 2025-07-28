@@ -86,6 +86,10 @@ async function handleRequest(request: HttpRequest): Promise<HttpResponse> {
       res.headers["Content-Length"] = res.body.length.toString();
     }
 
+    if (headers["Connection"]?.toString() === "close") {
+      res.headers["Connection"] = "close";
+    }
+
     return res;
   }
   
@@ -136,6 +140,10 @@ const server = net.createServer((socket: net.Socket) => {
     const request: HttpRequest = parseRequest(rawRequest);
     const response: HttpResponse = await handleRequest(request);
     socket.write(formatResponse(response));
+  
+    if (request.headers["Connection"]?.toString() === "close") {
+      socket.end();
+    }
   });
 });
 
